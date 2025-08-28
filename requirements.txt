@@ -1,0 +1,35 @@
+# Core PyTorch and Audio Processing
+torch>=2.0.0
+torchaudio>=2.0.0
+torchvision>=0.15.0
+
+# Audio Processing Libraries
+soundfile>=0.12.1
+librosa>=0.10.0
+scipy>=1.10.0
+numpy>=1.21.0
+
+# Data Processing and Utilities
+pyyaml>=6.0
+tqdm>=4.65.0
+pillow>=9.0.0
+
+# GUI and Visualization
+matplotlib>=3.6.0
+plotext>=5.0.0
+rich>=13.0.0
+
+# Machine Learning and NLP
+transformers>=4.20.0
+accelerate>=0.18.0
+safetensors>=0.3.0
+
+# Optional dependencies for enhanced functionality
+# tensorboard>=2.12.0  # For training visualization
+# wandb>=0.14.0        # For experiment tracking
+# gradio>=3.20.0       # For web interface
+
+# Development and Testing (optional)
+# pytest>=7.0.0
+# black>=23.0.0
+# flake8>=6.0.0

@@ -1,0 +1,131 @@
+data:
+  blank_hop_seconds: 1.0
+  blank_ratio_max: 0.3
+  blank_thr: 0.0001
+  categories:
+  - train
+  - valid
+  dataset_root: data
+  fmax: 24000.0
+  fmin: 20.0
+  high_dir_name: high
+  hop_length: 480
+  low_dir_name: low
+  n_fft: 2048
+  n_mels: 256
+  sample_rate: 48000
+  segment_seconds: 10.24
+  split_seed: 1337
+  valid_ratio: 0.05
+  win_length: 2048
+experiment:
+  out_dir: outputs/audiosr_ldm_train
+  seed: 1337
+inference:
+  chunk_hop_seconds: 3.0
+  chunk_seconds: 4.0
+  dynamic_clip_percentile: 0.99
+  guidance_scale: 1.5
+  sample_steps: 50
+  sampler: ddim
+model:
+  params:
+    base_learning_rate: 0.0001
+    beta_schedule: cosine
+    cond_stage_config:
+      concat_lowpass_cond:
+        cond_stage_key: lowpass_mel
+        conditioning_key: concat
+        params:
+          first_stage_config:
+            params:
+              ddconfig:
+                attn_resolutions: []
+                ch: 128
+                ch_mult:
+                - 1
+                - 2
+                - 4
+                - 8
+                double_z: true
+                dropout: 0.1
+                in_channels: 1
+                mel_bins: 256
+                num_res_blocks: 2
+                out_ch: 1
+                resolution: 256
+                z_channels: 16
+              embed_dim: 16
+            target: model.AudioSRAutoEncoderKL
+        target: model.VAEFeatureExtract
+    first_stage_config:
+      params:
+        ddconfig:
+          attn_resolutions: []
+          ch: 128
+          ch_mult:
+          - 1
+          - 2
+          - 4
+          - 8
+          double_z: true
+          dropout: 0.1
+          in_channels: 1
+          mel_bins: 256
+          num_res_blocks: 2
+          out_ch: 1
+          resolution: 256
+          z_channels: 16
+        embed_dim: 16
+      target: model.AudioSRAutoEncoderKL
+    loss_type: l2
+    parameterization: v
+    scale_by_std: true
+    scale_factor: 1.0
+    timesteps: 1000
+    unet_config:
+      params:
+        attention_resolutions:
+        - 8
+        - 4
+        - 2
+        channel_mult:
+        - 1
+        - 2
+        - 3
+        - 5
+        context_dim: null
+        image_size: 64
+        in_channels: 32
+        model_channels: 128
+        num_head_channels: 32
+        num_res_blocks: 2
+        out_channels: 16
+        transformer_depth: 1
+        use_spatial_transformer: true
+      target: model.UNetModel
+  target: model.LatentDiffusion
+train:
+  batch_size: 1
+  betas:
+  - 0.9
+  - 0.99
+  ema_decay: 0.999
+  epochs: 500
+  fastboot: true
+  freeze_substrings: []
+  gradient_accumulation_steps: 8
+  key_filter_contains: model.diffusion_model.
+  log_interval: 50
+  lr: 0.0001
+  min_lr_ratio: 0.1
+  num_workers: 12
+  preload_data_to_ram: true
+  pretrained_path: /home/husrcf/Code/Python/ProjectLily_Z_III/outputs/audiosr_ldm_train/checkpoints/step_30000.pt
+  save_interval_steps: 2000
+  unfreeze_if_no_pretrained: true
+  use_gradient_checkpointing: true
+  use_jit_compile: true
+  valid_interval_steps: 1000
+  warmup_steps: 2000
+  weight_decay: 0.0001

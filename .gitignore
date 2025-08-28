@@ -1,0 +1,142 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+audiosr_env/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Project specific ignores
+# ========================
+
+# Data directories
+data/
+raw_audio/
+raw_audioII/
+
+# Output directories
+output/
+outputs/
+test_output/
+
+# Model checkpoints and weights
+checkpoint/
+checkpoints/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+
+# Audio files
+*.wav
+*.mp3
+*.flac
+*.m4a
+*.aac
+*.ogg
+
+# Image and analysis files
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+audio_analysis/
+*.log
+
+# Temporary files
+temp/
+tmp/
+*.tmp
+inference_output.log
+
+# Jupyter notebooks (if any)
+*.ipynb_checkpoints/
+
+# PyTorch specific
+lightning_logs/
+
+# Weights & Biases
+wandb/
+
+# TensorBoard
+runs/
+logs/
+
+# Config overrides (keep template configs)
+local_config.yaml
+user_config.yaml
+
+# Backup files
+*.bak
+*.backup
+
+# Large model files
+*.bin
+*.model
+
+# System and editor files
+*.orig
+.merge_file_*
