@@ -127,7 +127,7 @@ train:
   save_interval_steps: 25
   log_interval: 10
   valid_interval_steps: 100
-  pretrained_path: /media/husrcf/ColorfulSSD/Code/Python/ProjectLily_Z_III_COPY/outputs/audiosr_ldm_train/checkpoints/step_75.pt
+  pretrained_path: /media/ColorfulSSD/Code/Python/ProjectLily_Z_III_COPY/outputs/audiosr_ldm_train/checkpoints/step_325.pt
   key_filter_contains: model.diffusion_model.
   unfreeze_if_no_pretrained: true
   freeze_substrings: []

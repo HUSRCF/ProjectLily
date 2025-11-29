@@ -4,6 +4,8 @@ import yaml
 import math
 import threading
 import argparse
+import logging
+from datetime import datetime
 from typing import Optional
 
 # --- GUI Imports ---
@@ -36,6 +38,53 @@ CFG_PATH = os.path.join(BASE, 'config.yaml')
 # =====================================================================================
 # SECTION: UTILITY & CORE TRAINING LOGIC
 # =====================================================================================
+
+class FileLogger:
+    """
+    A simple file logger that works alongside Rich Console.
+    Captures important training events and writes them to a log file.
+    """
+    def __init__(self, log_path: str):
+        self.log_path = log_path
+        self.file = open(log_path, 'w', encoding='utf-8')
+        self.write(f"Training Log Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        self.write("=" * 80)
+
+    def write(self, message: str):
+        """Write a message to the log file with timestamp."""
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        self.file.write(f"[{timestamp}] {message}\n")
+        self.file.flush()
+
+    def close(self):
+        """Close the log file."""
+        self.write("=" * 80)
+        self.write(f"Training Log Ended: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        self.file.close()
+
+    def __del__(self):
+        """Ensure file is closed when object is deleted."""
+        if hasattr(self, 'file') and not self.file.closed:
+            self.close()
+
+def setup_logging(log_dir: str = None):
+    """
+    Setup file logging with timestamps.
+    Returns the FileLogger instance.
+    """
+    if log_dir is None:
+        log_dir = BASE
+
+    # Create log filename with timestamp
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    log_filename = f'training_log_{timestamp}.txt'
+    log_path = os.path.join(log_dir, log_filename)
+
+    # Create FileLogger instance
+    file_logger = FileLogger(log_path)
+    file_logger.write(f"Log file created at: {log_path}")
+
+    return file_logger
 
 def ensure_dir(p: str):
     """Ensures a single directory exists."""
@@ -505,7 +554,12 @@ class TrainingApp(tk.Tk):
 
     def run_training_logic(self):
         """The main training loop, executed in a separate thread."""
+        file_logger = None
         try:
+            # --- 0. Setup logging ---
+            file_logger = setup_logging()
+            file_logger.write("Starting training in GUI mode")
+
             # --- 1. Update and save config ---
             with open(CFG_PATH, 'r', encoding='utf-8') as f:
                 current_cfg = yaml.safe_load(f)
@@ -531,27 +585,39 @@ class TrainingApp(tk.Tk):
 
             with open(CFG_PATH, 'w', encoding='utf-8') as f:
                 yaml.dump(current_cfg, f, sort_keys=False, allow_unicode=True)
-            
+
+            file_logger.write("Configuration updated and saved")
+
             self.console.rule("[bold cyan]🚀 Starting DataParallel + AMP training[/bold cyan]")
-            
+            file_logger.write("=" * 80)
+            file_logger.write("Starting DataParallel + AMP training")
+            file_logger.write("=" * 80)
+
             # --- 2. Setup ---
             set_seed(current_cfg['experiment']['seed'])
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
             accumulation_steps = current_cfg['train']['gradient_accumulation_steps']
             use_grad_checkpoint = current_cfg['train']['use_gradient_checkpointing']
-            
+
             self.console.print(f"Using device: [bold cyan]{device}[/]")
+            file_logger.write(f"Using device: {device}")
 
             # [ADDED] Hardware capability detection for optimal performance
             if torch.cuda.is_available():
                 gpu_name = torch.cuda.get_device_name(0)
                 self.console.print(f"GPU: [bold cyan]{gpu_name}[/]")
                 self.console.print(f"BF16 Support: [bold {'green' if torch.cuda.is_bf16_supported() else 'yellow'}]{torch.cuda.is_bf16_supported()}[/]")
+                file_logger.write(f"GPU: {gpu_name}")
+                file_logger.write(f"BF16 Support: {torch.cuda.is_bf16_supported()}")
 
             self.console.print(f"Gradient Accumulation: [bold cyan]{accumulation_steps} steps[/]")
             self.console.print(f"Fastboot: [bold {'green' if self.fastboot_var.get() else 'red'}]{self.fastboot_var.get()}[/]")
             self.console.print(f"JIT Compilation: [bold {'green' if self.jit_var.get() else 'red'}]{self.jit_var.get()}[/]")
             self.console.print(f"Gradient Checkpointing: [bold {'green' if use_grad_checkpoint else 'red'}]{use_grad_checkpoint}[/]")
+            file_logger.write(f"Gradient Accumulation: {accumulation_steps} steps")
+            file_logger.write(f"Fastboot: {self.fastboot_var.get()}")
+            file_logger.write(f"JIT Compilation: {self.jit_var.get()}")
+            file_logger.write(f"Gradient Checkpointing: {use_grad_checkpoint}")
 
             # --- 3. DataLoaders ---
             train_set_full = PairedMelDataset(split='train', **current_cfg['data'], preload_to_ram=True)
@@ -793,10 +859,19 @@ class TrainingApp(tk.Tk):
                     opt.zero_grad()
                     
                     self.console.print(f"[green]📈 Starting epoch {ep+1}/{current_cfg['train']['epochs']} with {stable_batch_count} batches[/green]")
-                    
+                    file_logger.write(f"Starting epoch {ep+1}/{current_cfg['train']['epochs']} with {stable_batch_count} batches")
+
+                    # Track losses for epoch summary
+                    epoch_losses = []
+
                     for batch_idx, batch in enumerate(train_loader):
                         if batch_idx % 50 == 0:
-                            self.console.print(f"[dim]Epoch {ep+1}, Batch {batch_idx+1}/{len(train_loader)}[/dim]")
+                            # Calculate average loss for the last 50 batches (or available batches)
+                            if epoch_losses:
+                                recent_avg_loss = sum(epoch_losses[-50:]) / len(epoch_losses[-50:])
+                                self.console.print(f"[dim]Epoch {ep+1}, Batch {batch_idx+1}/{len(train_loader)}, Avg Loss: {recent_avg_loss:.4f}[/dim]")
+                            else:
+                                self.console.print(f"[dim]Epoch {ep+1}, Batch {batch_idx+1}/{len(train_loader)}[/dim]")
                         
                         batch = {k: v.to(device) for k, v in batch.items() if isinstance(v, torch.Tensor)}
 
@@ -814,7 +889,8 @@ class TrainingApp(tk.Tk):
                             loss = loss.mean()
                         
                         raw_loss = loss.item()
-                        
+                        epoch_losses.append(raw_loss)  # Track loss for epoch summary
+
                         skip_this_step = False
                         if loss_monitor is not None:
                             actions = loss_monitor.update(raw_loss, gstep)
@@ -887,6 +963,7 @@ class TrainingApp(tk.Tk):
                             
                             if gstep % current_cfg['train']['log_interval'] == 0:
                                 self.console.print(f"[green]Step {gstep}: Loss = {current_loss_value:.4f}, LR = {current_lr_value:.2e}[/green]")
+                                file_logger.write(f"Step {gstep}: Loss = {current_loss_value:.4f}, LR = {current_lr_value:.2e}")
                                 self.after(0, self.update_plot, 'train', gstep, current_loss_value)
                                 
                                 if loss_monitor is not None and gstep % (current_cfg['train']['log_interval'] * 4) == 0:
@@ -907,9 +984,10 @@ class TrainingApp(tk.Tk):
                                     if is_dataparallel:
                                         val_loss = val_loss.mean()
                                     val_losses.append(val_loss.item())
-                                
+
                                 avg_val_loss = sum(val_losses) / len(val_losses)
                                 progress.console.print(f"📊 Validation @ step {gstep}: loss = {avg_val_loss:.4f}")
+                                file_logger.write(f"Validation @ step {gstep}: loss = {avg_val_loss:.4f}")
                                 self.after(0, self.update_plot, 'valid', gstep, avg_val_loss)
                                 model.train()
 
@@ -919,12 +997,14 @@ class TrainingApp(tk.Tk):
                                     path = os.path.join(outp, f'best_step_{gstep}.pt')
                                     torch.save({'state_dict': unwrapped_model.state_dict(), 'ema': ema.shadow}, path)
                                     progress.console.print(f"💾 [bold magenta]Saved best model to {path}[/bold magenta]")
+                                    file_logger.write(f"Saved best model to {path} (val_loss: {avg_val_loss:.4f})")
 
                             # [MODIFIED] Save the unwrapped model's state_dict
                             if gstep % current_cfg['train']['save_interval_steps'] == 0:
                                 path = os.path.join(outp, f'step_{gstep}.pt')
                                 torch.save({'state_dict': unwrapped_model.state_dict(), 'ema': ema.shadow}, path)
                                 progress.console.print(f"💾 [cyan]Saved checkpoint to {path}[/cyan]")
+                                file_logger.write(f"Saved checkpoint to {path}")
                         
                         # [FIX] Simplified and robust progress update
                         current_batch_loss = f"Loss: {raw_loss:.4f}" if 'raw_loss' in locals() else loss_display
@@ -945,8 +1025,14 @@ class TrainingApp(tk.Tk):
                     
                     if early_stop_triggered:
                         break
-                    
-                    # [FIX] Remove main task update since we removed the overall progress bar
+
+                    # [ADDED] Epoch summary at the end of each epoch
+                    if epoch_losses:
+                        epoch_avg_loss = sum(epoch_losses) / len(epoch_losses)
+                        epoch_min_loss = min(epoch_losses)
+                        epoch_max_loss = max(epoch_losses)
+                        self.console.print(f"[bold cyan]✅ Epoch {ep+1} Summary: Avg Loss = {epoch_avg_loss:.4f}, Min = {epoch_min_loss:.4f}, Max = {epoch_max_loss:.4f}, Batches = {len(epoch_losses)}[/bold cyan]")
+                        file_logger.write(f"Epoch {ep+1} Summary: Avg Loss = {epoch_avg_loss:.4f}, Min = {epoch_min_loss:.4f}, Max = {epoch_max_loss:.4f}, Batches = {len(epoch_losses)}")
 
                 # #[RESTORED]
                 for task_id in epoch_tasks_to_cleanup:
@@ -967,11 +1053,16 @@ class TrainingApp(tk.Tk):
             # [MODIFIED] Save final unwrapped model
             final_p = os.path.join(outp, 'final_ema.pt')
             torch.save({'state_dict': unwrapped_model.state_dict(), 'ema': ema.shadow}, final_p)
+            file_logger.write(f"Training completed successfully. Final model saved to: {final_p}")
+            file_logger.close()
             self.after(0, self.on_training_finish, final_p)
 
         except Exception as e:
             error_msg = str(e)
             self.console.print_exception()
+            if file_logger:
+                file_logger.write(f"Training failed with error: {error_msg}")
+                file_logger.close()
             self.after(0, lambda: self.btn_t.config(state=tk.NORMAL, text="Start Training"))
             self.after(0, lambda msg=error_msg: messagebox.showerror("Training Error", f"Training failed: {msg}"))
 
@@ -982,9 +1073,17 @@ class TrainingApp(tk.Tk):
 def run_training_nogui(config):
     """Run training without GUI using config.yaml parameters."""
     console = Console()
+    file_logger = None
 
     try:
+        # --- 0. Setup logging ---
+        file_logger = setup_logging()
+        file_logger.write("Starting training in non-GUI mode")
+
         console.rule("[bold cyan]🚀 Starting DataParallel + AMP training (Non-GUI Mode)[/bold cyan]")
+        file_logger.write("=" * 80)
+        file_logger.write("Starting DataParallel + AMP training (Non-GUI Mode)")
+        file_logger.write("=" * 80)
 
         # --- 1. Setup ---
         set_seed(config['experiment']['seed'])
@@ -993,17 +1092,24 @@ def run_training_nogui(config):
         use_grad_checkpoint = config['train']['use_gradient_checkpointing']
 
         console.print(f"Using device: [bold cyan]{device}[/]")
+        file_logger.write(f"Using device: {device}")
 
         # Hardware capability detection for optimal performance
         if torch.cuda.is_available():
             gpu_name = torch.cuda.get_device_name(0)
             console.print(f"GPU: [bold cyan]{gpu_name}[/]")
             console.print(f"BF16 Support: [bold {'green' if torch.cuda.is_bf16_supported() else 'yellow'}]{torch.cuda.is_bf16_supported()}[/]")
+            file_logger.write(f"GPU: {gpu_name}")
+            file_logger.write(f"BF16 Support: {torch.cuda.is_bf16_supported()}")
 
         console.print(f"Gradient Accumulation: [bold cyan]{accumulation_steps} steps[/]")
         console.print(f"Fastboot: [bold {'green' if config['train']['fastboot'] else 'red'}]{config['train']['fastboot']}[/]")
         console.print(f"JIT Compilation: [bold {'green' if config['train']['use_jit_compile'] else 'red'}]{config['train']['use_jit_compile']}[/]")
         console.print(f"Gradient Checkpointing: [bold {'green' if use_grad_checkpoint else 'red'}]{use_grad_checkpoint}[/]")
+        file_logger.write(f"Gradient Accumulation: {accumulation_steps} steps")
+        file_logger.write(f"Fastboot: {config['train']['fastboot']}")
+        file_logger.write(f"JIT Compilation: {config['train']['use_jit_compile']}")
+        file_logger.write(f"Gradient Checkpointing: {use_grad_checkpoint}")
 
         # --- 2. DataLoaders ---
         train_set_full = PairedMelDataset(split='train', **config['data'], preload_to_ram=True)
@@ -1206,10 +1312,19 @@ def run_training_nogui(config):
                 opt.zero_grad()
 
                 console.print(f"[green]📈 Starting epoch {ep+1}/{config['train']['epochs']} with {stable_batch_count} batches[/green]")
+                file_logger.write(f"Starting epoch {ep+1}/{config['train']['epochs']} with {stable_batch_count} batches")
+
+                # Track losses for epoch summary
+                epoch_losses = []
 
                 for batch_idx, batch in enumerate(train_loader):
                     if batch_idx % 50 == 0:
-                        console.print(f"[dim]Epoch {ep+1}, Batch {batch_idx+1}/{len(train_loader)}[/dim]")
+                        # Calculate average loss for the last 50 batches (or available batches)
+                        if epoch_losses:
+                            recent_avg_loss = sum(epoch_losses[-50:]) / len(epoch_losses[-50:])
+                            console.print(f"[dim]Epoch {ep+1}, Batch {batch_idx+1}/{len(train_loader)}, Avg Loss: {recent_avg_loss:.4f}[/dim]")
+                        else:
+                            console.print(f"[dim]Epoch {ep+1}, Batch {batch_idx+1}/{len(train_loader)}[/dim]")
 
                     batch = {k: v.to(device) for k, v in batch.items() if isinstance(v, torch.Tensor)}
 
@@ -1227,6 +1342,7 @@ def run_training_nogui(config):
                         loss = loss.mean()
 
                     raw_loss = loss.item()
+                    epoch_losses.append(raw_loss)  # Track loss for epoch summary
 
                     skip_this_step = False
                     if loss_monitor is not None:
@@ -1300,6 +1416,7 @@ def run_training_nogui(config):
 
                         if gstep % config['train']['log_interval'] == 0:
                             console.print(f"[green]Step {gstep}: Loss = {current_loss_value:.4f}, LR = {current_lr_value:.2e}[/green]")
+                            file_logger.write(f"Step {gstep}: Loss = {current_loss_value:.4f}, LR = {current_lr_value:.2e}")
 
                             if loss_monitor is not None and gstep % (config['train']['log_interval'] * 4) == 0:
                                 stats = loss_monitor.get_stats()
@@ -1322,6 +1439,7 @@ def run_training_nogui(config):
 
                             avg_val_loss = sum(val_losses) / len(val_losses)
                             progress.console.print(f"📊 Validation @ step {gstep}: loss = {avg_val_loss:.4f}")
+                            file_logger.write(f"Validation @ step {gstep}: loss = {avg_val_loss:.4f}")
                             model.train()
 
                             # Save the unwrapped model's state_dict
@@ -1330,12 +1448,14 @@ def run_training_nogui(config):
                                 path = os.path.join(outp, f'best_step_{gstep}.pt')
                                 torch.save({'state_dict': unwrapped_model.state_dict(), 'ema': ema.shadow}, path)
                                 progress.console.print(f"💾 [bold magenta]Saved best model to {path}[/bold magenta]")
+                                file_logger.write(f"Saved best model to {path} (val_loss: {avg_val_loss:.4f})")
 
                         # Save the unwrapped model's state_dict
                         if gstep % config['train']['save_interval_steps'] == 0:
                             path = os.path.join(outp, f'step_{gstep}.pt')
                             torch.save({'state_dict': unwrapped_model.state_dict(), 'ema': ema.shadow}, path)
                             progress.console.print(f"💾 [cyan]Saved checkpoint to {path}[/cyan]")
+                            file_logger.write(f"Saved checkpoint to {path}")
 
                     current_batch_loss = f"Loss: {raw_loss:.4f}" if 'raw_loss' in locals() else loss_display
                     current_lr_str = f"LR: {opt.param_groups[0]['lr']:.2e}" if len(opt.param_groups) > 0 else lr_display
@@ -1356,7 +1476,13 @@ def run_training_nogui(config):
                 if early_stop_triggered:
                     break
 
-                # [FIX] Remove main task update since we removed the overall progress bar
+                # [ADDED] Epoch summary at the end of each epoch
+                if epoch_losses:
+                    epoch_avg_loss = sum(epoch_losses) / len(epoch_losses)
+                    epoch_min_loss = min(epoch_losses)
+                    epoch_max_loss = max(epoch_losses)
+                    console.print(f"[bold cyan]✅ Epoch {ep+1} Summary: Avg Loss = {epoch_avg_loss:.4f}, Min = {epoch_min_loss:.4f}, Max = {epoch_max_loss:.4f}, Batches = {len(epoch_losses)}[/bold cyan]")
+                    file_logger.write(f"Epoch {ep+1} Summary: Avg Loss = {epoch_avg_loss:.4f}, Min = {epoch_min_loss:.4f}, Max = {epoch_max_loss:.4f}, Batches = {len(epoch_losses)}")
 
             # Cleanup progress tasks
             for task_id in epoch_tasks_to_cleanup:
@@ -1378,9 +1504,14 @@ def run_training_nogui(config):
         final_p = os.path.join(outp, 'final_ema.pt')
         torch.save({'state_dict': unwrapped_model.state_dict(), 'ema': ema.shadow}, final_p)
         console.print(f"[bold green]✅ Training completed. Final model saved to: {final_p}[/bold green]")
+        file_logger.write(f"Training completed successfully. Final model saved to: {final_p}")
+        file_logger.close()
 
     except Exception as e:
         console.print_exception()
+        if file_logger:
+            file_logger.write(f"Training failed with error: {str(e)}")
+            file_logger.close()
         raise e
 
 if __name__ == '__main__':
